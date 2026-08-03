@@ -1,0 +1,1 @@
+test kill servers (lsp should stop as well)

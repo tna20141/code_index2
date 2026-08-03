@@ -1,0 +1,8 @@
+.env.local
+.env.prod
+.venv/
+__pycache__/
+*.pyc
+data/
+.ruff_cache/
+.pytest_cache/
