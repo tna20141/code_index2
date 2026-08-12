@@ -1,9 +1,25 @@
 # Intentions: exact-token-match auth for the MCP HTTP surface. A Starlette middleware wrapping the MCP ASGI
 # app checks the Authorization: Bearer <token> header against the server's configured token. Deliberately
 # simple (spec: exact match, tokens distributed by hand) -- not OAuth. Each MCP passes its own token so read
-# and admin are gated independently. References: docs/spec.md sections 5, 8.
+# and admin are gated independently. Also the transport-security (allowed Host) helper both servers share.
+# References: docs/spec.md sections 5, 8.
 
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.types import ASGIApp, Receive, Scope, Send
+
+from src.config import settings
+
+
+def transport_security() -> TransportSecuritySettings | None:
+    """TransportSecuritySettings allowing the configured public host(s) (settings.mcp_allowed_hosts). Behind
+    a reverse proxy the public host must be allowed or the app returns 421 Misdirected Request. localhost is
+    always included. None (SDK default: localhost-only) when no public host is configured."""
+    hosts = [h.strip() for h in settings.mcp_allowed_hosts.split(",") if h.strip()]
+    if not hosts:
+        return None
+    allowed = [*hosts, "localhost", "127.0.0.1"]
+    origins = [f"https://{h}" for h in hosts] + [f"http://{h}" for h in hosts]
+    return TransportSecuritySettings(allowed_hosts=allowed, allowed_origins=origins)
 
 
 class BearerTokenMiddleware:

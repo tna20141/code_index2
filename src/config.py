@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     admin_mcp_port: int = 8211
     read_mcp_token: str = ""
     admin_mcp_token: str = ""
+    # Hosts the MCP server accepts in the Host header (DNS-rebinding protection). Behind a reverse proxy the
+    # PUBLIC host must be listed or the app returns 421 Misdirected Request. Comma-separated; empty = the
+    # SDK default (localhost only). Prod example: "ci.mavenic.co". Localhost is always allowed too.
+    mcp_allowed_hosts: str = ""
 
 
 settings = Settings()

@@ -4,6 +4,8 @@
 # also fold in their live spread (regenerated per build -- the index is a point-in-time snapshot). The
 # resolver + root_path for that spread come from the project registry. References: docs/spec.md section 6.
 
+import asyncio
+import logging
 import os
 import pickle
 
@@ -16,6 +18,8 @@ from src.constants import SEARCHABLE_ENTITY_TYPES, EntityType, SpreadMode
 from src.repositories import endpoints, flows, logic_artifacts, subsystems
 from src.services import project_registry, reads
 from src.services import spread as spread_svc
+
+_log = logging.getLogger("search")
 
 _EMBED_MODEL = "voyage-code-3"
 _DISTANCE_THRESHOLD = 1.0  # drop matches beyond this L2 distance (garbage-match cutoff)
@@ -30,8 +34,48 @@ def _voyage() -> voyageai.Client:
     return _client
 
 
+# voyage-code-3 accepts at most 120k tokens AND 1000 documents per embed() batch. Our endpoint texts fold in
+# the full inlined spread, so all-endpoints-in-one-call easily blows the token cap (measured ~760k for 86
+# endpoints). We chunk greedily under both limits. Use a margin below 120k because voyage counts per its own
+# tokenizer and a lone doc near the ceiling would otherwise reject the whole batch.
+_MAX_BATCH_TOKENS = 110_000
+_MAX_BATCH_DOCS = 1000
+
+
 def _embed(texts: list[str]) -> list[list[float]]:
-    return _voyage().embed(texts, model=_EMBED_MODEL).embeddings
+    """Embed `texts`, chunked so each embed() call stays under voyage's per-batch token + doc caps. Returns
+    the embeddings in the SAME order as `texts` (batches are concatenated in order). A single text over the
+    token cap goes in its own batch -- voyage truncates it server-side rather than rejecting (matches the
+    'after truncation' wording in its own error)."""
+    if not texts:
+        return []
+    client = _voyage()
+    # Per-text token counts (voyage's own tokenizer -- LOCAL, no network; the budget matches what the API
+    # enforces). The tokenizer file is downloaded + cached by the voyage SDK on first use.
+    token_counts = [client.count_tokens([t], model=_EMBED_MODEL) for t in texts]
+
+    embeddings: list[list[float]] = []
+    batch: list[str] = []
+    batch_tokens = 0
+
+    def _flush() -> None:
+        # One embed() API call for the accumulated batch. Logged so a caller watching stderr sees progress
+        # (a rebuild embeds many batches of dense code and each call is a slow network round-trip).
+        nonlocal batch, batch_tokens
+        _log.info("embedding batch: %d docs, ~%d tokens", len(batch), batch_tokens)
+        embeddings.extend(client.embed(batch, model=_EMBED_MODEL).embeddings)
+        batch, batch_tokens = [], 0
+
+    for text, n_tokens in zip(texts, token_counts):
+        # Flush the current batch if adding this text would exceed either cap (and the batch isn't empty --
+        # a single oversized text must still go through on its own, relying on voyage's truncation).
+        if batch and (batch_tokens + n_tokens > _MAX_BATCH_TOKENS or len(batch) >= _MAX_BATCH_DOCS):
+            _flush()
+        batch.append(text)
+        batch_tokens += n_tokens
+    if batch:
+        _flush()
+    return embeddings
 
 
 def _index_path(project_id: str, entity_type: str) -> str:
@@ -41,17 +85,25 @@ def _index_path(project_id: str, entity_type: str) -> str:
 
 # --- embedded-text builders (curated meaning + associative id/ref slugs) ---
 
+# Cap the spread-enrichment per endpoint. Folding the live spread in is best-effort flavor for the embedding,
+# but it drags in the LSP resolver (jedi), whose startup/queries can be slow OR hang outright -- and a hang is
+# NOT an exception, so a bare try/except can't save us; the whole rebuild would wedge on one endpoint. The
+# timeout degrades a stuck/slow spread to metadata-only (id+description+annotation+trigger) for that endpoint.
+_SPREAD_ENRICH_TIMEOUT_S = 30.0
+
+
 async def _endpoint_text(project_id: str, root_path: str, ep: dict) -> str:
     parts = [ep["id"], ep.get("description", ""), ep.get("annotation", ""), ep.get("trigger", "")]
     try:
-        resolver = await project_registry.get_resolver(project_id)
-        # resolve the handler (path:symbol -> current line via LSP) and fold in its live spread.
-        definition, err = await reads.resolve_endpoint_start(resolver, project_id, root_path, ep["id"])
-        if definition is not None and err is None:
-            parts.append(await spread_svc.spread(
-                project_id, root_path, resolver, definition, mode=SpreadMode.FLAT))
-    except Exception:  # noqa: BLE001, S110 -- best-effort enrichment; any hiccup must not drop the endpoint
-        pass
+        async with asyncio.timeout(_SPREAD_ENRICH_TIMEOUT_S):
+            resolver = await project_registry.get_resolver(project_id)
+            # resolve the handler (path:symbol -> current line via LSP) and fold in its live spread.
+            definition, err = await reads.resolve_endpoint_start(resolver, project_id, root_path, ep["id"])
+            if definition is not None and err is None:
+                parts.append(await spread_svc.spread(
+                    project_id, root_path, resolver, definition, mode=SpreadMode.FLAT))
+    except (Exception, TimeoutError):  # noqa: BLE001 -- best-effort; hang/hiccup must not drop the endpoint
+        _log.warning("spread enrichment skipped for %s (slow/failed LSP)", ep["id"])
     return "\n".join(p for p in parts if p)
 
 

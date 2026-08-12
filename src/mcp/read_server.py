@@ -201,7 +201,8 @@ async def list_directory_tool(project_id: str, path: str) -> dict:
 def build_app():
     """The token-gated ASGI app. Wraps the MCP app's lifespan so Mongo connects and the resolver starts
     before serving (and the resolver stops on shutdown)."""
-    app = server.streamable_http_app()
+    from src.mcp.auth import transport_security
+    app = server.streamable_http_app(transport_security=transport_security())
     inner_lifespan = app.router.lifespan_context
 
     @asynccontextmanager

@@ -278,7 +278,8 @@ async def rebuild_search_index(project_id: str, entity_types: list[str] | None =
 def build_app():
     """The token-gated ASGI app. Ensures compound indexes on startup; uses the admin token. Resolvers are
     torn down on shutdown (resolvers are started lazily per-project from the DB root_path)."""
-    app = server.streamable_http_app()
+    from src.mcp.auth import transport_security
+    app = server.streamable_http_app(transport_security=transport_security())
     inner_lifespan = app.router.lifespan_context
 
     @asynccontextmanager
