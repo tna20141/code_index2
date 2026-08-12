@@ -88,12 +88,24 @@ async def discover_symbols(resolver: Resolver, symbol: str,
     return matches
 
 
-async def resolve_endpoint_start(project_id: str, root_path: str, endpoint_id: str) -> Definition | None:
-    """An endpoint id -> the start Definition at its handler_location. None if the endpoint doesn't exist."""
+async def resolve_endpoint_start(resolver: Resolver, project_id: str, root_path: str,
+                                 endpoint_id: str) -> tuple[Definition | None, str | None]:
+    """An endpoint id -> (start Definition, error). handler_location is "{path}:{symbol}" (no line number,
+    for stability), so we resolve the symbol to its CURRENT line via LSP. Returns (def, None) on success, or
+    (None, error) if the endpoint is missing / handler_location is malformed / the symbol can't be uniquely
+    located in that file (moved, renamed, or ambiguous)."""
     ep = await endpoints_repo.get(project_id, endpoint_id)
     if ep is None:
-        return None
-    return _location_definition(root_path, ep["handler_location"])
+        return None, f"endpoint not found: {endpoint_id}"
+    path, _, symbol = ep["handler_location"].rpartition(":")
+    if not path or not symbol:
+        return None, f"malformed handler_location (want 'path:symbol'): {ep['handler_location']}"
+    matches = await discover_symbols(resolver, symbol, _strip_slash(path))
+    if not matches:
+        return None, f"handler '{symbol}' not found in {path} (moved/renamed? re-scan the endpoint)"
+    if len(matches) > 1:
+        return None, f"handler '{symbol}' is ambiguous in {path} ({len(matches)} matches)"
+    return match_to_definition(root_path, matches[0]), None
 
 
 def resolve_location_start(root_path: str, location: str) -> Definition | None:

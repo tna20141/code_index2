@@ -10,7 +10,7 @@ from src.repositories import COLL_ENDPOINTS
 from src.utils import mongo
 
 # Fields a caller may update (everything except id/project_id/created_at; updated_at is set here).
-_UPDATABLE_FIELDS = ("kind", "handler_location", "signature", "trigger", "last_scanned_commit",
+_UPDATABLE_FIELDS = ("kind", "handler_location", "trigger", "last_scanned_commit",
                      "description", "annotation", "labels", "logic_artifacts")
 
 

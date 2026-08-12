@@ -1,0 +1,33 @@
+# MongoDB for code_index2 -- runs the DB in a container; the MCP servers run natively on the host (uv/pm2)
+# and connect to it on localhost:27017. Matches the local dev version (Mongo 6.0).
+#
+# Usage (from this deploy/ dir):
+#   cp .env.mongo.example .env.mongo   # fill MONGO_ROOT_USER / MONGO_ROOT_PASSWORD
+#   docker compose -f docker-compose.mongo.yml --env-file .env.mongo up -d
+#   docker compose -f docker-compose.mongo.yml logs -f        # watch startup
+#
+# The app then uses MONGO_URI=mongodb://<user>:<pass>@localhost:27017/?authSource=admin (see .env.mongo.example).
+
+services:
+  mongo:
+    image: mongo:6.0            # pinned to the dev major.minor (local is 6.0.8)
+    container_name: code-index-mongo
+    restart: unless-stopped
+    # Bind to LOCALHOST ONLY -- the app is on the same host, so the DB never needs to be public.
+    # (If you must reach it remotely, tunnel over SSH rather than exposing 27017.)
+    ports:
+      - "127.0.0.1:27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    volumes:
+      - mongo_data:/data/db     # persistent -- survives container restarts/recreates
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  mongo_data:

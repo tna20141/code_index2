@@ -35,6 +35,8 @@ If you need to inspect the actual code (which you often do), use the spread tool
 
 Now, the human could be a technical person (a dev), or a non-tech person (e.g. a business person or PO). A non-tech person probably just wants to know the current behavior of the system, from a business standpoint (even if it could get into details sometimes). A tech person on the other hand should want to know the code and the techincal details, and could actually be an llm agent doing development work. Tailor your answers accordingly.
 - Be default, assume it's a tech person. If during the conversation, you suspect they may be non-tech, you can ask them if they are and adapt your answer style. You maybe the person can tell you themselves beforehand.
+
+- Finally, be sure to check out CLAUDE.md if available in the codebase you're in. It may contain clues on the specific project/codebase, plus how you can use additional tools to aid with inspecting the codebase. Usually there might be helpful mcps as well so be sure to check that.
 """
 
 server = MCPServer(name="code-index", instructions=_INSTRUCTIONS)
@@ -68,6 +70,11 @@ async def discover_tool(project_id: str, symbol: str, path: str | None = None) -
         "Spread an endpoint or function into its inlined call-chain reading view: the whole flow stitched "
         "into one text, with `# && spread-begin:/spread-end:` markers around each descended callee (rely on "
         "those markers for structure, not indentation).\n"
+        "Each node when spread will be inserted almost verbatim into the output (with inner and preceding comments), "
+        "although sometimes the code index editor could inline or rewrite the content a bit to be easier to consume. "
+        "The call chain is traversed and spread recursively, stopping either at library boundary or trivial nodes (marked by `# ci:trivial`). "
+        "If you ever want to inspect a trivial node, specify that node directly by providing the symbol name "
+        "(note that its descendants would still follow the rule).\n"
         "\n"
         "Specify the target with EXACTLY ONE of these (precedence high->low if several are given):\n"
         "  - endpoint_id : an endpoint's id -> spreads its handler.\n"
@@ -89,9 +96,9 @@ async def spread_tool(project_id: str, endpoint_id: str | None = None, location:
 
     # Resolve the start Definition by precedence: endpoint_id > location > symbol.
     if endpoint_id is not None:
-        definition = await reads.resolve_endpoint_start(project_id, root_path, endpoint_id)
-        if definition is None:
-            return {"error": f"endpoint not found: {endpoint_id}"}
+        definition, err = await reads.resolve_endpoint_start(resolver, project_id, root_path, endpoint_id)
+        if err is not None:
+            return {"error": err}
     elif location is not None:
         definition = reads.resolve_location_start(root_path, location)
         if definition is None:

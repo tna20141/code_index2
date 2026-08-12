@@ -14,9 +14,8 @@ import voyageai
 from src.config import settings
 from src.constants import SEARCHABLE_ENTITY_TYPES, EntityType, SpreadMode
 from src.repositories import endpoints, flows, logic_artifacts, subsystems
-from src.services import project_registry
+from src.services import project_registry, reads
 from src.services import spread as spread_svc
-from src.services.spread.lsp import Definition
 
 _EMBED_MODEL = "voyage-code-3"
 _DISTANCE_THRESHOLD = 1.0  # drop matches beyond this L2 distance (garbage-match cutoff)
@@ -42,20 +41,15 @@ def _index_path(project_id: str, entity_type: str) -> str:
 
 # --- embedded-text builders (curated meaning + associative id/ref slugs) ---
 
-def _endpoint_location(ep: dict, root_path: str) -> Definition:
-    # the handler_location "path:lineno" -> a start Definition for the spread fold-in.
-    path, _, lineno = ep["handler_location"].rpartition(":")
-    abs_path = path if os.path.isabs(path) else os.path.join(root_path, path)
-    return Definition(path=abs_path, line=int(lineno), col=1)
-
-
 async def _endpoint_text(project_id: str, root_path: str, ep: dict) -> str:
-    parts = [ep["id"], ep.get("description", ""), ep.get("annotation", ""),
-             ep.get("trigger", ""), ep.get("signature", "")]
+    parts = [ep["id"], ep.get("description", ""), ep.get("annotation", ""), ep.get("trigger", "")]
     try:
         resolver = await project_registry.get_resolver(project_id)
-        parts.append(await spread_svc.spread(
-            project_id, root_path, resolver, _endpoint_location(ep, root_path), mode=SpreadMode.FLAT))
+        # resolve the handler (path:symbol -> current line via LSP) and fold in its live spread.
+        definition, err = await reads.resolve_endpoint_start(resolver, project_id, root_path, ep["id"])
+        if definition is not None and err is None:
+            parts.append(await spread_svc.spread(
+                project_id, root_path, resolver, definition, mode=SpreadMode.FLAT))
     except Exception:  # noqa: BLE001, S110 -- best-effort enrichment; any hiccup must not drop the endpoint
         pass
     return "\n".join(p for p in parts if p)

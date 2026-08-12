@@ -34,8 +34,8 @@ async def get_or_generate(project_id: str, root_path: str, location: str, body: 
         return cached["content"]
 
     try:
-        # prefer the call-site name (the invoked name); fall back to parsing the def line.
-        content = await claude.run_prompt(_PROMPT.format(symbol=symbol, location=location))
+        # run the sub-agent IN the project's repo (root_path) so it can read the source; symbol anchors it.
+        content = await claude.run_prompt(_PROMPT.format(symbol=symbol, location=location), cwd=root_path)
     except claude.ClaudeInvocationError:
         return body  # deterministic fallback -- serve the real body, don't persist a failed view
 

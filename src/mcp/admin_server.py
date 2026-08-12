@@ -25,11 +25,12 @@ This mcp helps you curate and update the code index for the current project (cur
 There will be a read MCP companion to this MCP for using the code index for the read path. It can filter those entities based on some parameters. Also there is the ability to "spread" and endpoint or a symbol to show the whole code content flattened recursively, for convenient viewing (using lsp). You can use this MCP too to aid with the editing process.
 
 Before using the codebase you should read .codeindex.config.js to know which types of endpoints are there (e.g. REST handler, worker job handler), and the project id slug. The project id should be sent along in every tool request (check each tool's details) because the code index could be serving many projects at once.
+You should also read the codebase's CLAUDE.md if available for more context on the codebase's info and conventions.
 
 Your main tasks (aside from the specific ones asked by human) is to go through the codebase changes (obtained from git diff or git show etc, or initially from the whole codebase's content) and seed/update the code index accordingly. The steps:
 - Use the read MCP to get all subsystems, logic artifacts and labels for context.
 - Get the raw content change using git. You should get the current code index's last processed commit hash, then do a diff on that commit for the new changes (if there is no hash yet, it means the code index isn't seeded and you should consider the whole codebase for processing).
-- From the changes, determine the updates/creations/deletions of the endpoints, and apply them (create_endpoint / update_endpoint / delete_endpoint). update_endpoint takes any subset of fields -- on a rescan pass only the auto-scanned fields (kind/handler_location/signature/trigger/last_scanned_commit) and OMIT the curated ones (description/annotation/labels/logic_artifacts) so you don't clobber human curation.
+- From the changes, determine the updates/creations/deletions of the endpoints, and apply them (create_endpoint / update_endpoint / delete_endpoint). handler_location is `<path>:<symbol>` (the handler's def NAME, not a line number). update_endpoint takes any subset of fields -- on a rescan pass only the auto-scanned fields (kind/handler_location/trigger/last_scanned_commit) and OMIT the curated ones (description/annotation/labels/logic_artifacts) so you don't clobber human curation.
 - From those updates in the endpoints, check if any flows need to be updated as well. Dont try to over update them though, lean on the lazy side. Update when there are genuinely new endpoints that should be added to any flow, or removing deleted endpoints from flows' lists, or update description/flow makeup if the new changes are really conflicting with the existing ones.
   - Actually the mcp will help with some consistency guards. E.g. when deleting an endpoint, and references to it (e.g. from flows) will be removed as well.
 - Generate a report on what's been done, and recommend updates to subsystems, logic artifacts or labels. Again, for the recommendations, lean on the lazy side. Only suggest when there are genuine version conflicts or there's something really worth adding to the existing collections.
@@ -54,11 +55,12 @@ async def create_endpoint(
     project_id: str,
     id: Annotated[str, Field(description="The endpoint id. Format is deterministic and follow .codeindex.config.js")],
     kind: Annotated[str, Field(description="Endpoint type. Of of the ones in .codeindex.config.js")],
-    handler_location: Annotated[str, Field(description="<file/path/from/repo/root.ext>:<lineno>")],
-    signature: Annotated[str, Field(description="Declaration signature from code")],
+    handler_location: Annotated[str, Field(description="<file/path/from/repo/root.ext>:<symbol> -- the "
+                                "handler's file and def/function NAME (no line number; the line is resolved "
+                                "live, so this stays stable when unrelated edits shift lines).")],
     trigger: Annotated[str, Field(description="E.g. `POST /api/v1/posts`, or worker name")],
-    description: Annotated[str, Field(description="short description describing what it does, no more than 100 words. Can skip if the function is trivial or the name is descriptive enough")],
-    annotation: Annotated[str | None, Field(description="Any remarks, marginal notes or additional explicit comments. Most of the time this is not needed since the code should be explanatory enough. Totally fine to leave blank")],
+    description: Annotated[str, Field(description="short description describing what it does, no more than 100 words. Can skip if the function is trivial or the name is descriptive enough")] = "",
+    annotation: Annotated[str | None, Field(description="Any remarks, marginal notes or additional explicit comments. Most of the time this is not needed since the code should be explanatory enough. Totally fine to leave blank. To leave blank, dont provide this field instead of passing an empty string.")] = None,
     labels: Annotated[list[str] | None, Field(description="Label id slugs if any")] = None,
     logic_artifacts: Annotated[list[str] | None, Field(description="Associated logic artifact id slugs if any")] = None,
     last_scanned_commit: str = ""
@@ -66,7 +68,7 @@ async def create_endpoint(
     try:
         new_id = await curation.create_endpoint({
             "project_id": project_id, "id": id, "kind": kind, "handler_location": handler_location,
-            "signature": signature, "trigger": trigger, "description": description, "annotation": annotation,
+            "trigger": trigger, "description": description, "annotation": annotation,
             "labels": labels or [], "logic_artifacts": logic_artifacts or [],
             "last_scanned_commit": last_scanned_commit})
         return {"ok": True, "id": new_id}
@@ -79,7 +81,7 @@ async def update_endpoint(
     project_id: str,
     id: str,
     updates: Annotated[dict, Field(description="Fields to update (any subset). Updatable: kind, "
-                                   "handler_location, signature, trigger, last_scanned_commit, description, "
+                                   "handler_location, trigger, last_scanned_commit, description, "
                                    "annotation, labels, logic_artifacts. See create_endpoint for each field's "
                                    "meaning. Unknown/protected keys (id, project_id) are ignored.")],
 ) -> dict:

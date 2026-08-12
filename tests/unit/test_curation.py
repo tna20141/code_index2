@@ -14,8 +14,8 @@ _P = "proj1"  # the test project_id
 
 
 def _endpoint(eid: str, labels=None) -> dict:
-    return {"project_id": _P, "id": eid, "kind": "http", "handler_location": "x.py:1",
-            "signature": "", "trigger": "GET /x", "description": "", "annotation": "",
+    return {"project_id": _P, "id": eid, "kind": "http", "handler_location": "src/x.py:handler",
+            "trigger": "GET /x", "description": "", "annotation": "",
             "labels": labels or [], "logic_artifacts": [], "last_scanned_commit": ""}
 
 
@@ -71,14 +71,14 @@ async def test_delete_endpoint_cascades_to_flow_endpoint_ids():
 
 async def test_update_endpoint_partial_leaves_omitted_fields():
     # a partial update writes only the passed fields; omitted ones (e.g. curation) are untouched.
-    await curation.create_endpoint({**_endpoint("e1"), "signature": "old", "description": "curated"})
-    await curation.update_endpoint(_P, "e1", {"signature": "new", "last_scanned_commit": "b"})
+    await curation.create_endpoint({**_endpoint("e1"), "trigger": "GET /old", "description": "curated"})
+    await curation.update_endpoint(_P, "e1", {"trigger": "GET /new", "last_scanned_commit": "b"})
     ep = await mongo.find_one("endpoints", {"project_id": _P, "id": "e1"})
-    assert ep["signature"] == "new" and ep["description"] == "curated"
+    assert ep["trigger"] == "GET /new" and ep["description"] == "curated"
 
 
 async def test_update_endpoint_ignores_protected_keys():
     await curation.create_endpoint(_endpoint("e1"))
-    await curation.update_endpoint(_P, "e1", {"id": "hacked", "project_id": "other", "signature": "sig2"})
+    await curation.update_endpoint(_P, "e1", {"id": "hacked", "project_id": "other", "trigger": "GET /y"})
     ep = await mongo.find_one("endpoints", {"project_id": _P, "id": "e1"})
-    assert ep is not None and ep["signature"] == "sig2"  # id/project_id whitelisted out, not written
+    assert ep is not None and ep["trigger"] == "GET /y"  # id/project_id whitelisted out, not written

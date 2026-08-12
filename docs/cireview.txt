@@ -1,0 +1,3 @@
+repositories/query_review_cache necessary? Caching is not a repo concern though. Better implement as a utils and let service call it.
+repositories/indexes.py: why not put the indexes in their respective repo file?
+spread is not a subsystem. Make it mingle with the rest.

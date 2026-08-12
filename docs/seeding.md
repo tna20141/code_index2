@@ -38,7 +38,7 @@ Read by the agent (as text — not machine-parsed). Each entry in `endpointTypes
      id               = per the kind's `idRule` in the config, applied to the TRIGGER + shared normalization
                         (no spaces, minimal special chars, no file path/line/handler name). STABLE across
                         rescans -- a file move must not change it.
-     kind, handler_location ({path}:{lineno}), signature, trigger
+     kind, handler_location ({path}:{symbol} -- the def NAME, not a line), trigger
 4. Reconcile against the current index (list(entity_type="endpoint")):
      new in source, absent in index      -> create_endpoint(skeleton)
      present in both, scanned-fields chgd -> update_endpoint(id, {scanned fields only})  # omit curated!
@@ -69,7 +69,7 @@ follow those verbatim. The id shape is always `<kind>__<normalized-trigger>`. In
 - **Idempotent-ish**: re-running a seed hits unique-`id` conflicts on already-created endpoints — that's the
   "already seeded" signal, harmless. Prefer reconciling (step 4) over blind re-create.
 - **Partial updates**: `update_endpoint(id, {...})` writes only the fields you pass. On a rescan, pass only
-  the auto-scanned fields (kind/handler_location/signature/trigger/last_scanned_commit) and OMIT the curated
+  the auto-scanned fields (kind/handler_location/trigger/last_scanned_commit) and OMIT the curated
   ones (description/annotation/labels/logic_artifacts) so you don't clobber human curation.
 - **Watermark last**: only `set_commit_hash(HEAD)` after a *successful* pass; if the run aborts, leaving the
   old watermark means the next run re-covers the same diff.

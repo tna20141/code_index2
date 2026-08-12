@@ -123,8 +123,8 @@ _id, project_id, id         # id: DERIVED FROM THE TRIGGER per the config's idRu
                             #     e.g. "http__POST_api_v1_shops", "periodic_job__amz_poll_task"
 kind                        # free string; kinds declared in the codebase's .codeindex.config.js
                             #   (evolix: "http" | "kafka" | "periodic_job" | "worker_handler")
-handler_location            # "{path-from-root}:{lineno}" — where the handler is (spread start)
-signature                   # the handler def line (carries the handler name + params)
+handler_location            # "{path-from-root}:{symbol}" — the handler's def NAME (no line number, so it
+                            #   survives unrelated edits; the line is resolved live via LSP at spread start)
 trigger                     # route / topic / job-name — the external trigger (the id derives from it)
 description                 # curated; annotation? (optional) — curated free-text
 labels[], logic_artifacts[]
@@ -234,7 +234,7 @@ server-side `root_path` from the `projects` row and starts its resolver lazily.
   threshold → return ids+scores.
 - **Build:** full rebuild, **manually triggered** for now (workflow later — §7 TODO).
 - **Embedded text per entity** (curated meaning + light structural/associative signal):
-  - endpoint → `id` + `description` + `annotation` + `trigger`/`signature` + the live
+  - endpoint → `id` + `description` + `annotation` + `trigger` + the live
     **spread** (regenerated at build time — the index is a point-in-time snapshot).
   - flow → `id` + `description` + referenced endpoint-id slugs.
   - subsystem → `id` + `description` + `content`.

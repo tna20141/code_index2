@@ -8,7 +8,7 @@
 # The abs source path is NOT stored (it's runtime state in the project registry); the `projects` row is just
 # the logical bucket.
 #
-# Endpoints mix auto-scanned fields (kind/handler_location/signature/trigger) and curated fields
+# Endpoints mix auto-scanned fields (kind/handler_location/trigger) and curated fields
 # (description/annotation/labels/logic_artifacts). `update_endpoint` writes any subset the caller passes, so
 # a rescan should pass only the scanned fields (and omit the curated ones) to avoid clobbering curation.
 
@@ -34,8 +34,9 @@ class Endpoint(TypedDict):
     # codebase's .codeindex.config.js (idRule), applied by the scanning agent.
     id: str
     kind: str          # free string; the codebase's .codeindex.config.js declares the valid kinds
-    handler_location: str  # "{path-from-root}:{lineno}" -- where the handler is defined (for spread start)
-    signature: str     # the handler def line (carries the handler name + params)
+    # "{path-from-root}:{symbol}" -- where the handler is defined (the def/function name, NOT a line number,
+    # so it's stable when unrelated edits shift lines). The line is resolved live via LSP at spread time.
+    handler_location: str
     # The external event that INVOKES this endpoint (the id is derived from this):
     # http -> "POST /api/v1/shops"; kafka -> the topic; periodic_job -> "periodic:<name>@<interval>s";
     # worker_handler -> "sprint:<name>".
