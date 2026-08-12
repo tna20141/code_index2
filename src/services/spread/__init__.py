@@ -53,11 +53,16 @@ def _leading_ws(line: str) -> str:
 def _call_sites(body_lines: list[str], base_line: int) -> list[tuple[int, int, str]]:
     """[Pure] (abs_line, abs_col, name) for each call site in `body_lines` (1-based file line `base_line` is
     the block's first line). Parse the dedented block with `ast`; the token to resolve is the rightmost name
-    of the Call's func (foo() -> foo; a.b.c() -> c). Absolute column is recovered by locating the token on the
-    real (non-dedented) source line, which sidesteps dedent-offset bookkeeping."""
+    of the Call's func (foo() -> foo; a.b.c() -> c). Absolute column is recovered from the token's OWN ast
+    offset (end_col_offset - len(name)) mapped back onto the real (non-dedented) line by that line's dedent
+    padding. We deliberately do NOT string-search for the name: a bare `.find(name)` matches the FIRST
+    occurrence on the line, which is wrong whenever the name appears earlier as a substring -- e.g. the local
+    `updated` on `updated = await repo.update(...)` shadows `repo.update`, so we'd resolve the variable (or its
+    module) instead of the method. The ast offset points at the exact token every time."""
     if not body_lines:
         return []
     dedented = textwrap.dedent("\n".join(body_lines))
+    dedented_lines = dedented.split("\n")
     try:
         tree = ast.parse(dedented)
     except SyntaxError:
@@ -67,17 +72,26 @@ def _call_sites(body_lines: list[str], base_line: int) -> list[tuple[int, int, s
         if not isinstance(node, ast.Call):
             continue
         func = node.func
+        # The token to resolve is on the func's END line (a.b.c() -> `c`, on the line `c(` sits on); its start
+        # column in DEDENTED coords is end_col_offset - len(name). Attribute/Name both end at the name.
         if isinstance(func, ast.Name):
-            name, rel_line = func.id, func.lineno
+            name = func.id
         elif isinstance(func, ast.Attribute):
-            name, rel_line = func.attr, (func.end_lineno or func.lineno)
+            name = func.attr
         else:
             continue
-        idx = rel_line - 1  # 0-based into body_lines
-        if idx >= len(body_lines):
+        rel_line = func.end_lineno or func.lineno
+        idx = rel_line - 1  # 0-based into body_lines / dedented_lines
+        if idx >= len(body_lines) or idx >= len(dedented_lines):
             continue
-        col = body_lines[idx].find(name)
-        if col == -1:
+        ded_col = (func.end_col_offset or 0) - len(name)  # 0-based start of the token in the dedented line
+        # Map dedented col -> real (non-dedented) col: the dedent removed a per-line prefix; recover its width
+        # as the length difference. (dedent strips a COMMON prefix, so this is uniform for non-blank lines, but
+        # computing per-line is robust to blanks.)
+        pad = len(body_lines[idx]) - len(dedented_lines[idx])
+        col = ded_col + pad
+        # Guard: the recovered slice must actually be the token (a cheap correctness check; skip if it drifted).
+        if col < 0 or body_lines[idx][col:col + len(name)] != name:
             continue
         sites.append((base_line + idx, col + 1, name))  # 1-based line & col in the file
     return sites

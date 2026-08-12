@@ -15,6 +15,7 @@ from src.config import settings
 from src.constants import CODE_INDEX_DESC, SEARCHABLE_ENTITY_TYPES, EntityType
 from src.mcp.auth import BearerTokenMiddleware
 from src.repositories import indexes
+from src.repositories import projects as projects_repo
 from src.services import curation, project_registry, search
 from src.services.project_registry import ProjectRootMissing, UnknownProject
 from src.utils import mongo
@@ -24,7 +25,7 @@ This mcp helps you curate and update the code index for the current project (cur
 {CODE_INDEX_DESC}
 There will be a read MCP companion to this MCP for using the code index for the read path. It can filter those entities based on some parameters. Also there is the ability to "spread" and endpoint or a symbol to show the whole code content flattened recursively, for convenient viewing (using lsp). You can use this MCP too to aid with the editing process.
 
-Before using the codebase you should read .codeindex.config.js to know which types of endpoints are there (e.g. REST handler, worker job handler), and the project id slug. The project id should be sent along in every tool request (check each tool's details) because the code index could be serving many projects at once.
+Before using the codebase, call `get_project_config` to get the project's config (its endpoint_types taxonomy -- the kinds of endpoints, how to find each, and how to build their ids -- plus root_path and documents). The project id (slug) is given to you; send it along in every tool request (check each tool's details) because the code index could be serving many projects at once.
 You should also read the codebase's CLAUDE.md if available for more context on the codebase's info and conventions.
 
 Your main tasks (aside from the specific ones asked by human) is to go through the codebase changes (obtained from git diff or git show etc, or initially from the whole codebase's content) and seed/update the code index accordingly. The steps:
@@ -48,13 +49,28 @@ def _err(exc: Exception) -> dict:
     return {"ok": False, "error": str(exc)}
 
 
+# --- Project config ---
+
+@server.tool(name="get_project_config",
+             description="Get the project's config (from its DB row): the endpoint_types taxonomy (kind, "
+                         "description, how_to_find, id_rule, paths) the scanner uses, plus root_path and "
+                         "documents. READ THIS FIRST when seeding/scanning.")
+async def get_project_config(project_id: str) -> dict:
+    project = await projects_repo.get(project_id)
+    if project is None:
+        return {"ok": False, "error": f"unknown project: {project_id}"}
+    return {"ok": True, "id": project["id"], "root_path": project.get("root_path"),
+            "endpoint_types": project.get("endpoint_types") or [],
+            "documents": project.get("documents") or []}
+
+
 # --- Endpoints ---
 
 @server.tool(name="create_endpoint", description="Create an endpoint.")
 async def create_endpoint(
     project_id: str,
-    id: Annotated[str, Field(description="The endpoint id. Format is deterministic and follow .codeindex.config.js")],
-    kind: Annotated[str, Field(description="Endpoint type. Of of the ones in .codeindex.config.js")],
+    id: Annotated[str, Field(description="The endpoint id. Format is deterministic; follow the kind's id_rule from get_project_config")],
+    kind: Annotated[str, Field(description="Endpoint type. One of the kinds in the project's endpoint_types (get_project_config)")],
     handler_location: Annotated[str, Field(description="<file/path/from/repo/root.ext>:<symbol> -- the "
                                 "handler's file and def/function NAME (no line number; the line is resolved "
                                 "live, so this stays stable when unrelated edits shift lines).")],

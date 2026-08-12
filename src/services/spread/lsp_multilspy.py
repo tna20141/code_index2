@@ -9,13 +9,12 @@
 # pay it once); and open_file(), which is a SYNC context manager. References: docs/spec.md section 2.
 
 import os
-from urllib.parse import unquote, urlparse
 
 from multilspy import LanguageServer
 from multilspy.multilspy_config import Language, MultilspyConfig
 from multilspy.multilspy_logger import MultilspyLogger
-from multilspy.multilspy_types import SymbolKind
 
+from src.services.spread import ast_symbols
 from src.services.spread.lsp import Definition, Span, SymbolMatch
 
 
@@ -24,22 +23,6 @@ def _to_relative(file: str, root_path: str) -> str:
     if os.path.isabs(file):
         return os.path.relpath(file, root_path)
     return file
-
-
-def _symbol_kind_name(kind) -> str:
-    # [Pure] LSP SymbolKind (an int enum) -> its name ("Function"/"Class"/"Method"/...). Robust to int input.
-    try:
-        return SymbolKind(kind).name
-    except (ValueError, KeyError):
-        return str(kind)
-
-
-def _uri_to_path(uri: str) -> str:
-    # [Pure] a file:// URI -> a plain filesystem path (LSP Locations carry uri, not a bare path).
-    if not uri:
-        return ""
-    parsed = urlparse(uri)
-    return unquote(parsed.path) if parsed.scheme == "file" else uri
 
 
 class MultilspyResolver:
@@ -107,31 +90,10 @@ class MultilspyResolver:
                     end_line=best["range"]["end"]["line"] + 1)
 
     async def find_symbols(self, name: str) -> list[SymbolMatch]:
-        """workspace/symbol for `name` -> def-like matches (Function/Class/Method), paths repo-relative.
-        workspace/symbol is FUZZY, so we keep only EXACT-name matches (discover means 'locate this symbol',
-        not 'symbols starting with'). Filters to symbols DEFINED IN this repo (workspace-symbol can surface
-        library symbols too). The LSP Location carries `uri` (a file:// URI) + `range` at its top level."""
-        server = self._require()
-        symbols = await server.request_workspace_symbol(name)
-        matches: list[SymbolMatch] = []
-        for s in symbols or []:
-            if s.get("name") != name:
-                continue  # workspace/symbol is fuzzy -- drop prefix/substring hits, keep exact name only
-            kind = _symbol_kind_name(s.get("kind"))
-            if kind not in ("Function", "Class", "Method"):
-                continue
-            loc = s.get("location") or {}
-            abs_path = _uri_to_path(loc.get("uri", ""))
-            if not abs_path or not os.path.realpath(abs_path).startswith(os.path.realpath(self._root)):
-                continue  # skip symbols outside this repo (stdlib/site-packages)
-            start = (loc.get("range") or {}).get("start", {})
-            match: SymbolMatch = {
-                "symbol": s["name"],
-                "path": os.path.relpath(abs_path, self._root),
-                "line": start.get("line", 0) + 1,
-                "kind": kind,
-            }
-            if s.get("containerName"):
-                match["container"] = s["containerName"]
-            matches.append(match)
-        return matches
+        """All def/async-def/class definitions named EXACTLY `name` across the repo, via an AST scan (see
+        ast_symbols) -- NOT jedi's workspace/symbol. Jedi's workspace/symbol is INCOMPLETE for common names:
+        it returns only a small partial subset (for `update` it gave 3 of 6 defs, dropping every repo one),
+        which silently broke `discover`. A name->sites lookup doesn't need the language server; an ast walk is
+        complete + deterministic. The other resolver methods (resolve_definition/get_span) still use jedi,
+        which needs real position resolution. [I/O: reads the repo's .py files]"""
+        return ast_symbols.find_symbols(self._root, name)

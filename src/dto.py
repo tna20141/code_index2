@@ -17,12 +17,19 @@ from typing import NotRequired, TypedDict
 
 
 class Project(TypedDict):
-    """The logical bucket for one indexed codebase. `id` is the canonical slug (matching the repo's
-    .codeindex.config.js `project`). `root_path` is the codebase's source location ON THE SERVER -- the
-    single host of record, so read users need no local clone; the read server resolves/spreads against it.
-    Seeded by hand (id + root_path)."""
+    """The logical bucket for one indexed codebase AND its config -- everything centralized on this row
+    (there is no config file). `id` is the canonical slug. `root_path` is the codebase's source location ON
+    THE SERVER -- the single host of record, so read users need no local clone; the read server
+    resolves/spreads against it. Seeded by hand."""
     id: str            # slug -- unique
     root_path: str     # absolute source path on the server
+    # the endpoint taxonomy the scanning agent uses -- one entry per endpoint kind. Each:
+    # {kind, description, how_to_find, id_rule, paths?} (all snake_case). Agent-read prose (not
+    # machine-parsed). Seeded by hand.
+    endpoint_types: NotRequired[list[dict]]
+    # optional allowlist of verbatim reference docs exposed to the read MCP. Each: {path (repo-root-relative;
+    # trailing "/" = a directory, recursive access), description}. Seeded by hand.
+    documents: NotRequired[list[dict]]
     created_at: NotRequired[datetime]
     updated_at: NotRequired[datetime]
 
@@ -31,9 +38,9 @@ class Endpoint(TypedDict):
     project_id: str
     # Deterministic id DERIVED FROM THE TRIGGER (no spaces, minimal special chars) -- unique WITHIN a project,
     # stable across rescans (a file move doesn't change it). The exact derivation rule per kind lives in the
-    # codebase's .codeindex.config.js (idRule), applied by the scanning agent.
+    # project's `endpoint_types[].id_rule` (projects row), applied by the scanning agent.
     id: str
-    kind: str          # free string; the codebase's .codeindex.config.js declares the valid kinds
+    kind: str          # free string; the project's `endpoint_types` (projects row) declares the valid kinds
     # "{path-from-root}:{symbol}" -- where the handler is defined (the def/function name, NOT a line number,
     # so it's stable when unrelated edits shift lines). The line is resolved live via LSP at spread time.
     handler_location: str

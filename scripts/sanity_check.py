@@ -112,6 +112,15 @@ async def _check_globals(valid_projects: set[str], rep: _Report) -> None:
         seen.add(pid)
         if not p.get("root_path"):
             rep.add(COLL_PROJECTS, pid, "missing `root_path` (read server can't spread this project)")
+        # optional `documents` allowlist: each entry must be {path (str), description (str)}.
+        docs = p.get("documents")
+        if docs is not None:
+            if not isinstance(docs, list):
+                rep.add(COLL_PROJECTS, pid, "`documents` should be a list")
+            else:
+                for i, d in enumerate(docs):
+                    if not isinstance(d, dict) or not isinstance(d.get("path"), str) or not d.get("path"):
+                        rep.add(COLL_PROJECTS, pid, f"documents[{i}] must have a non-empty string `path`")
 
     # index_meta + query_view_cache: project_id must be valid; index_meta one-per-project.
     meta_seen = set()

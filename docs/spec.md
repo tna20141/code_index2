@@ -163,8 +163,12 @@ _id, name (unique), description, created_at, updated_at
 
 ### `projects` (multi-project bucket)
 ```
-_id, id (slug, unique), root_path, created_at, updated_at
+_id, id (slug, unique), root_path, documents?, created_at, updated_at
 ```
+`documents?` is an optional allowlist of verbatim reference files/folders exposed to the read MCP:
+`[{path (repo-root-relative; trailing "/" = a recursive directory), description}]`. Seeded by hand.
+Powers the `list_documents` / `read_documents` / `list_directory` read tools (see
+`docs/documents-feature-design.md`).
 One row per indexed codebase, keyed by the canonical slug (matching its `.codeindex.config.js`
 `project`). `root_path` is the codebase's source location **on the server** — the single host of
 record, so read users need no local clone and no registration: they pass a `project_id`, and the

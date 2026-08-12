@@ -52,6 +52,25 @@ async def list_projects() -> list[dict]:
     return await projects_repo.find({})
 
 
+# scanner-only fields on an endpoint_type -- stripped from the read-side view (they're for the building agent).
+_SCANNER_ONLY_ENDPOINT_TYPE_FIELDS = ("how_to_find", "id_rule")
+
+
+async def get_project_info(project_id: str) -> dict | None:
+    """The project record for a READ consumer, ~as-is, minus the ObjectId. endpoint_types drop the
+    scanner-only fields (how_to_find, id_rule); everything else (kind, description, paths) stays. None if the
+    project doesn't exist."""
+    project = await projects_repo.get(project_id)
+    if project is None:
+        return None
+    info = dict(project)
+    info["endpoint_types"] = [
+        {k: v for k, v in et.items() if k not in _SCANNER_ONLY_ENDPOINT_TYPE_FIELDS}
+        for et in (project.get("endpoint_types") or [])
+    ]
+    return info
+
+
 async def list_entities(project_id: str, entity_type: str, ids: list[str] | None = None,
                         labels: list[str] | None = None, logic_artifacts: list[str] | None = None,
                         kind: str | None = None, select: list[str] | None = None) -> list[dict]:

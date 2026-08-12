@@ -10,8 +10,9 @@ from mcp.server.mcpserver import MCPServer
 from src.config import settings
 from src.constants import CODE_INDEX_DESC, SpreadMode
 from src.mcp.auth import BearerTokenMiddleware
-from src.services import project_registry, reads, search
+from src.services import documents, project_registry, reads, search
 from src.services import spread as spread_svc
+from src.services.documents import DocumentAccessError, NoDocumentsConfigured
 from src.services.project_registry import ProjectRootMissing, UnknownProject
 from src.utils import mongo
 
@@ -25,9 +26,11 @@ def _project_error(exc: Exception) -> str:
 _INSTRUCTIONS = f"""
 This mcp helps you use the code index to explore and navigate the codebase for a project.
 {CODE_INDEX_DESC}
-Before using the codebase you should read .codeindex.config.js to know which types of endpoints are there (e.g. REST handler, worker job handler), and the project id slug. The project id should be sent along in every tool request (check each tool's details) because the code index could be serving many projects at once.
+The project id (slug) is given to you; send it along in every tool request (check each tool's details) because the code index could be serving many projects at once.
 
 It's best to get all subsystems, logic artifacts and labels for context, before you attempt to answer queries.
+
+The project may also expose curated REFERENCE DOCUMENTS (architecture notes, ADRs, domain docs). Call `list_documents` to see what's available (each has a description of what it is and when to fetch); `read_documents` to read files/folders verbatim; `list_directory` to browse a doc folder. Consult these when a query needs design rationale or domain context the code alone doesn't give.
 
 If you need to inspect the actual code (which you often do), use the spread tool to get an endpoint or a symbol's full content flatten, for a complete view of the logic throughout the call chain.
 - The spread will skip dynamic invocation .e.g. functions as params, or function names as string (since the spread is only done statically). You're free to go from there to explore the codebase even further (you usually won't have the codebase ready so you can inspect yourself, so you can ask the mcp to inspect/spread a particular node/symbol).
@@ -47,6 +50,27 @@ server = MCPServer(name="code-index", instructions=_INSTRUCTIONS)
                          "`project_id` to the other tools.")
 async def list_projects() -> list[dict]:
     return [{"id": p["id"]} for p in await reads.list_projects()]
+
+
+@server.tool(
+    name="get_project_info",
+    description=(
+        "Get a project's info record. Shape:\n"
+        "  id           : the project slug (pass as project_id to other tools).\n"
+        "  root_path    : the codebase's source path on the server.\n"
+        "  endpoint_types: the KINDS of endpoints in this codebase -- [{kind, description, paths}]. `kind` is "
+        "the type name (e.g. http, kafka, periodic_job); `description` explains what that trigger family is; "
+        "`paths` are the folders it lives in. (This is how you learn what an endpoint's `kind` means.)\n"
+        "  documents    : curated reference docs exposed for reading -- [{path, description}]; each `path` is "
+        "a file or a directory (trailing '/'), `description` says what it is and when to fetch. Read them "
+        "with `read_documents` / browse with `list_directory`.\n"
+        "Good to call up front for orientation on a project.")
+)
+async def get_project_info_tool(project_id: str) -> dict:
+    info = await reads.get_project_info(project_id)
+    if info is None:
+        return {"error": f"unknown project: {project_id}"}
+    return info
 
 
 @server.tool(
@@ -138,6 +162,40 @@ async def list_tool(project_id: str, entity_type: str, ids: list[str] | None = N
 async def search_tool(project_id: str, query: str, entity_types: list[str] | None = None,
                       top_k: int = 20) -> list[dict]:
     return await search.search(project_id, query, entity_types, top_k)
+
+
+# --- Project documents (curated verbatim reference files/folders; allowlist-gated) ---
+
+@server.tool(name="list_documents",
+             description="List the project's curated reference documents -- [{path, description}]. Each is a "
+                         "file or a directory (trailing '/') the project has exposed, with a note on what it "
+                         "is and when to fetch. Use `read_documents` to read them, `list_directory` to browse "
+                         "a directory. Empty if none configured.")
+async def list_documents_tool(project_id: str) -> list[dict]:
+    return await documents.list_documents(project_id)
+
+
+@server.tool(name="read_documents",
+             description="Read one or more of the project's allowed documents verbatim. `paths` may mix files "
+                         "and directories (repo-root-relative). A directory is read RECURSIVELY (all files "
+                         "under it). Only allowlisted paths are permitted -- if ANY path is disallowed the "
+                         "whole call fails. Returns one text with each file marked `===== FILE: <path> =====`.")
+async def read_documents_tool(project_id: str, paths: list[str]) -> dict:
+    try:
+        return {"content": await documents.read_documents(project_id, paths)}
+    except (DocumentAccessError, NoDocumentsConfigured) as exc:
+        return {"error": str(exc)}
+
+
+@server.tool(name="list_directory",
+             description="List the immediate (non-recursive) contents of an allowed document directory -- "
+                         "[{name, path, type: 'file'|'dir'}]. Subdirs can be listed further; files read via "
+                         "read_documents. The directory must be within the project's document allowlist.")
+async def list_directory_tool(project_id: str, path: str) -> dict:
+    try:
+        return {"entries": await documents.list_directory(project_id, path)}
+    except (DocumentAccessError, NoDocumentsConfigured) as exc:
+        return {"error": str(exc)}
 
 
 def build_app():

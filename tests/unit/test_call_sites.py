@@ -31,6 +31,39 @@ def test_finds_attribute_calls_on_rightmost_token():
     assert body[site[0] - 5][site[1] - 1:].startswith("find_by_id")
 
 
+def test_attribute_not_shadowed_by_earlier_substring_variable():
+    # Regression: `repo.update` where a local `updated` appears EARLIER on the same line. A naive
+    # line.find("update") matches inside `updated` (col 5) and resolves the wrong symbol (the variable /
+    # its module) -> spread self-recurses. The col must point at the METHOD token (`repo.update`), not the
+    # variable. body[0] = `    updated = await repo.update(` -> 'update' method starts at 0-based col 25.
+    body = [
+        "    updated = await repo.update(",
+        "        tenant_id,",
+        "    )",
+    ]
+    sites = _call_sites(body, base_line=49)
+    site = next(s for s in sites if s[2] == "update")
+    # the recovered column must land on the METHOD, i.e. be immediately preceded by 'repo.'
+    assert body[0][site[1] - 1:].startswith("update")
+    assert body[0][:site[1] - 1].endswith("repo.")
+
+
+def test_attribute_not_matched_inside_a_string_literal():
+    # Regression: the callee name must not be located inside an earlier string literal on the line.
+    body = ["    log('update done'); r = repo.update(x)"]
+    sites = _call_sites(body, base_line=1)
+    site = next(s for s in sites if s[2] == "update")
+    assert body[0][:site[1] - 1].endswith("repo.")  # the real call, not the 'update' in the string
+
+
+def test_method_call_on_result_shadowing_variable():
+    # `job.result()` with a local `result` earlier -> must resolve the method, not the variable.
+    body = ["    result = await job.result()"]
+    sites = _call_sites(body, base_line=1)
+    site = next(s for s in sites if s[2] == "result")
+    assert body[0][:site[1] - 1].endswith("job.")
+
+
 def test_non_parseable_fragment_yields_no_sites():
     assert _call_sites(["def broken(:", "  pass"], base_line=1) == []
 

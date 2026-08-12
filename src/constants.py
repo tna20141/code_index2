@@ -23,8 +23,8 @@ SEARCHABLE_ENTITY_TYPES = (
 
 
 # NOTE: endpoint `kind` is a free string, NOT an enum here -- the authoritative list of kinds per codebase
-# is declared in that repo's .codeindex.config.js (keeps code_index2 codebase-agnostic; another project may
-# have kinds we don't know about). Don't reintroduce an EndpointKind enum.
+# is declared in that project's `endpoint_types` (the projects DB row); keeps code_index2 codebase-agnostic
+# (another project may have kinds we don't know about). Don't reintroduce an EndpointKind enum.
 
 
 class SpreadMode(StrEnum):
