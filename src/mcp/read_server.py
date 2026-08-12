@@ -28,7 +28,9 @@ This mcp helps you use the code index to explore and navigate the codebase for a
 {CODE_INDEX_DESC}
 The project id (slug) is given to you; send it along in every tool request (check each tool's details) because the code index could be serving many projects at once.
 
-It's best to get all subsystems, logic artifacts and labels for context, before you attempt to answer queries.
+IMPORTANT: YOU SHOULD DO WARMUP AS FOLLOW:
+- Invoke get_project_info to get info about project, and clues on how to further gather context for warmup before even addressing users' queries (e.g. requesting CLAUDE.md).
+- Get all subsystems, logic artifacts and labels for context, before you attempt to answer queries.
 
 The project may also expose curated REFERENCE DOCUMENTS (architecture notes, ADRs, domain docs). Call `list_documents` to see what's available (each has a description of what it is and when to fetch); `read_documents` to read files/folders verbatim; `list_directory` to browse a doc folder. Consult these when a query needs design rationale or domain context the code alone doesn't give.
 
@@ -38,8 +40,6 @@ If you need to inspect the actual code (which you often do), use the spread tool
 
 Now, the human could be a technical person (a dev), or a non-tech person (e.g. a business person or PO). A non-tech person probably just wants to know the current behavior of the system, from a business standpoint (even if it could get into details sometimes). A tech person on the other hand should want to know the code and the techincal details, and could actually be an llm agent doing development work. Tailor your answers accordingly.
 - Be default, assume it's a tech person. If during the conversation, you suspect they may be non-tech, you can ask them if they are and adapt your answer style. You maybe the person can tell you themselves beforehand.
-
-- Finally, be sure to check out CLAUDE.md if available in the codebase you're in. It may contain clues on the specific project/codebase, plus how you can use additional tools to aid with inspecting the codebase. Usually there might be helpful mcps as well so be sure to check that.
 """
 
 server = MCPServer(name="code-index", instructions=_INSTRUCTIONS)
