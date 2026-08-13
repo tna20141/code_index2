@@ -29,7 +29,7 @@ This mcp helps you use the code index to explore and navigate the codebase for a
 The project id (slug) is given to you; send it along in every tool request (check each tool's details) because the code index could be serving many projects at once.
 
 IMPORTANT: YOU SHOULD DO WARMUP AS FOLLOW:
-- Invoke get_project_info to get info about project, and clues on how to further gather context for warmup before even addressing users' queries (e.g. requesting CLAUDE.md).
+- Invoke get_project_info to get info about project, and clues on how to further gather context and what to always fetch for warmup before even addressing users' queries (e.g. requesting CLAUDE.md).
 - Get all subsystems, logic artifacts and labels for context, before you attempt to answer queries.
 
 The project may also expose curated REFERENCE DOCUMENTS (architecture notes, ADRs, domain docs). Call `list_documents` to see what's available (each has a description of what it is and when to fetch); `read_documents` to read files/folders verbatim; `list_directory` to browse a doc folder. Consult these when a query needs design rationale or domain context the code alone doesn't give.
